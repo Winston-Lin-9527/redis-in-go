@@ -162,8 +162,12 @@ func (w *Writer) Write(v Value) error {
 		return err
 	}
 
-	w.writer.Flush() // it's a buffered IO, we MUST flush to move data from bufio down to Go runtime
+	// w.writer.Flush() // it's a buffered IO, we MUST flush to move data from bufio down to Go runtime
 	return nil
+}
+
+func (w *RespWriter) Flush() error {
+	return w.writer.Flush()
 }
 
 func (v *Value) toBytes() ([]byte, error) {

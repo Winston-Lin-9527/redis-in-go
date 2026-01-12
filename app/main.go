@@ -65,5 +65,14 @@ func handleConnection(conn net.Conn) {
 	}
 
 	result := handler.Execute()
-	writer.Write(result)
+
+		writer.Write(result) // write response to write buffer
+
+		// support pipelined writes, flush only when no more data to read, reduce syscalls & tcp overheads
+		if resp.reader.Buffered() == 0 {
+			writer.Flush()
+		}
+
+		aof.WriteCommand(value) // write the command, not execution result
+	}
 }
