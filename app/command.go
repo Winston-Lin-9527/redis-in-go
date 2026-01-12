@@ -11,16 +11,28 @@ type Handler func(args []Value) Value
 
 // function closures as factory
 var Handlers = map[string]func() Command{
-	"SET":  func() Command { return &SetCommand{} },
-	"GET":  func() Command { return &GetCommand{} },
-	"PING": func() Command { return &PingCommand{} },
-	"HSET": func() Command { return &HSetCommand{} },
-	"HGET": func() Command { return &HGetCommand{} },
+	"COMMAND": func() Command { return &NoOpCommand{} },
+	"SET":     func() Command { return &SetCommand{} },
+	"GET":     func() Command { return &GetCommand{} },
+	"PING":    func() Command { return &PingCommand{} },
+	"HSET":    func() Command { return &HSetCommand{} },
+	"HGET":    func() Command { return &HGetCommand{} },
 }
 
 type Command interface {
 	Init(args []Value) // custom arg handling logic
 	Execute() Value    // custom execution logic
+}
+
+// Handle CLI interactive mode: do nothing as the user input is just an enter with no content
+type NoOpCommand struct {
+}
+
+func (c *NoOpCommand) Init(args []Value) {
+}
+
+func (c *NoOpCommand) Execute() Value {
+	return Value{typ: TypeString, str: "OK"}
 }
 
 var SETs = map[string]string{}
@@ -172,13 +184,14 @@ func (c *PingCommand) Execute() Value {
 }
 
 func selectCommand(command string, args []Value) (cmd Command, err Value) {
-	cmd = Handlers[strings.ToUpper(command)]() // call factory (a function closure) to generate a new instance
-	if cmd == nil {
+	fmt.Printf("Selected command: %s, args: %v\n", command, args)
+	cmd_ptr := Handlers[strings.ToUpper(command)] // call factory (a function closure) to generate a new instance
+	if cmd_ptr == nil {
 		fmt.Println("Unknown command: ", command)
 		return nil, Value{typ: TypeError, str: "ERR unknown command '" + command + "'"}
 	}
-	// print the cmd address
-	// fmt.Printf("Selected command addr: %p ", cmd)
+
+	cmd = cmd_ptr()
 	cmd.Init(args)
 	return cmd, Value{typ: TypeString, str: "OK"}
 }
