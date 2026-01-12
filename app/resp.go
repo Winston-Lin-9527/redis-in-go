@@ -105,7 +105,11 @@ func (r *Resp) readBulk() (Value, error) {
 
 	bulk := make([]byte, bulk_size)
 
-	r.reader.Read(bulk)
+	// read until bulk_size bytes are read, assumes integrity of the input request
+	_, err = io.ReadFull(r.reader, bulk)
+	if err != nil {
+		return v, err
+	}
 
 	v.bulk = string(bulk)
 
