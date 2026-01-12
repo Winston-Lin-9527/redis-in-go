@@ -37,16 +37,16 @@ type Value struct {
 	array []Value // nested type
 }
 
-// Resp reader (RESP -> Value)
-type Resp struct {
+// RespReader reader (RESP -> Value)
+type RespReader struct {
 	reader *bufio.Reader
 }
 
-func NewResp(rd io.Reader) *Resp {
-	return &Resp{reader: bufio.NewReader(rd)}
+func NewRespReader(rd io.Reader) *RespReader {
+	return &RespReader{reader: bufio.NewReader(rd)}
 }
 
-func (r *Resp) readLine() (line []byte, n int, err error) {
+func (r *RespReader) readLine() (line []byte, n int, err error) {
 	line, err = r.reader.ReadBytes('\n')
 	if err != nil {
 		return nil, 0, err
@@ -61,7 +61,7 @@ func (r *Resp) readLine() (line []byte, n int, err error) {
 	return line[:n-1], n, nil
 }
 
-func (r *Resp) readInteger() (x int, n int, err error) {
+func (r *RespReader) readInteger() (x int, n int, err error) {
 	line, n, err := r.readLine()
 	if err != nil {
 		return 0, 0, err
@@ -73,7 +73,7 @@ func (r *Resp) readInteger() (x int, n int, err error) {
 	return int(i64), n, nil
 }
 
-func (r *Resp) readArray() (Value, error) {
+func (r *RespReader) readArray() (Value, error) {
 	v := Value{}
 	v.typ = TypeArray
 
@@ -94,7 +94,7 @@ func (r *Resp) readArray() (Value, error) {
 	return v, nil
 }
 
-func (r *Resp) readBulk() (Value, error) {
+func (r *RespReader) readBulk() (Value, error) {
 	v := Value{}
 	v.typ = TypeBulk
 
@@ -118,7 +118,8 @@ func (r *Resp) readBulk() (Value, error) {
 	return v, nil
 }
 
-func (r *Resp) Read() (Value, error) {
+// reads in a single command
+func (r *RespReader) Read() (Value, error) {
 	// first byte is the data type
 	data_type, err := r.reader.ReadByte()
 	if err != nil {
@@ -139,23 +140,19 @@ func (r *Resp) Read() (Value, error) {
 // the reader performs (RESP -> Value), now we need to perform (Value -> RESP in raw bytes)
 // assemble bytes from Value objects
 
-type Writer struct {
+type RespWriter struct {
 	writer *bufio.Writer
 }
 
-func NewWriter(w io.Writer) *Writer {
-	return &Writer{writer: bufio.NewWriter(w)}
+func NewRespWriter(w io.Writer) *RespWriter {
+	return &RespWriter{writer: bufio.NewWriter(w)}
 }
 
-func (w *Writer) Write(v Value) error {
+func (w *RespWriter) Write(v Value) error {
 	bs, err := v.toBytes()
 	if err != nil {
 		return err
 	}
-
-	// for _, b := range bs {
-	// 	fmt.Printf("%c", b)
-	// }
 
 	_, err = w.writer.Write(bs)
 	if err != nil {
