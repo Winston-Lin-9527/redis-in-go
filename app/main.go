@@ -110,6 +110,6 @@ func handleConnection(conn net.Conn) {
 			writer.Flush()
 		}
 
-		aof.WriteCommand(value) // write the command, not execution result
+		aof.WriteCommand(value) // write the command, not execution result, TODO: limit to SET/HSET only
 	}
 }

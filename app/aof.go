@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -29,7 +30,7 @@ func NewAof(path string) (*Aof, error) {
 		muLock: sync.Mutex{},
 	}
 
-	// sync every second
+	// sync every 5 second
 	go func() {
 		for {
 			aof.muLock.Lock()
@@ -61,23 +62,31 @@ func (a *Aof) WriteCommand(v Value) error {
 	return a.wr.Write(v)
 }
 
-// assumes AOF valid
+// assumes AOF file valid
 func (a *Aof) Reconstruct(callback func(v Value)) error {
 	a.muLock.Lock()
 	defer a.muLock.Unlock()
 
+	num_command_loaded := 0
+	v, err := a.rd.Read()
+	if err == io.EOF {
+		fmt.Fprintf(os.Stderr, "AOF file is empty, but that's ok! Just created one.\n")
+		return nil
+	}
+
 	for {
-		v, err := a.rd.Read()
+		v, err = a.rd.Read()
+		if err == io.EOF { // finished reading the AOF
+			fmt.Println("AOF: Loaded " + strconv.Itoa(num_command_loaded) + " commands")
+			break
+		}
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to read command from AOF: %v\n", err)
 			break
 		}
 
-		if err == io.EOF {
-			break // finished reading the AOF
-		}
-
 		callback(v)
+		num_command_loaded += 1
 	}
 
 	return nil

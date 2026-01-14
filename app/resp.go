@@ -17,20 +17,20 @@ const (
 )
 
 // 1. Define the "Enum" type
-type ValueType string
+type RespValueType string
 
 // 2. Define the possible values
 const (
-	TypeArray  ValueType = "array"
-	TypeBulk   ValueType = "bulk"
-	TypeString ValueType = "string"
-	TypeError  ValueType = "error"
-	TypeInt    ValueType = "integer"
-	TypeNull   ValueType = "null"
+	TypeArray  RespValueType = "array"
+	TypeBulk   RespValueType = "bulk"
+	TypeString RespValueType = "string"
+	TypeError  RespValueType = "error"
+	TypeInt    RespValueType = "integer"
+	TypeNull   RespValueType = "null"
 )
 
 type Value struct {
-	typ   ValueType // the data type, one of the constants defined above
+	typ   RespValueType // the data type, one of the constants defined above
 	str   string
 	num   string
 	bulk  string
