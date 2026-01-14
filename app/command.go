@@ -35,8 +35,7 @@ func (c *NoOpCommand) Execute() Value {
 	return Value{typ: TypeString, str: "OK"}
 }
 
-var SETs = map[string]string{}
-var SETsMu = sync.RWMutex{}
+var redisdb = NewRedisDB()
 
 type SetCommand struct {
 	db    string // unused, later could specify which db to set
@@ -59,9 +58,8 @@ func (c *SetCommand) Execute() Value {
 		return Value{typ: TypeError, str: c.err}
 	}
 
-	SETsMu.Lock()
-	SETs[c.key] = c.value
-	SETsMu.Unlock()
+	// SETs[c.key] = c.value
+	redisdb.SetKey(c.key, c.value)
 
 	return Value{typ: TypeString, str: "OK"}
 }
@@ -87,15 +85,15 @@ func (c *GetCommand) Execute() Value {
 
 	fmt.Println("Getting key: ", c.key)
 
-	SETsMu.RLock()
-	value, ok := SETs[c.key]
-	SETsMu.RUnlock()
-
+	redis_obj, ok := redisdb.GetKey(c.key)
 	if !ok {
+		// if key not found
 		return Value{typ: TypeNull}
 	}
 
-	return Value{typ: TypeBulk, bulk: value}
+	val_str := redis_obj.PPrint()
+
+	return Value{typ: TypeBulk, bulk: val_str}
 }
 
 var HSETs = map[string]map[string]string{}
