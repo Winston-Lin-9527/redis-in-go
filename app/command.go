@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 type Handler func(args []Value) Value
@@ -20,8 +21,8 @@ var Handlers = map[string]func() Command{
 }
 
 type Command interface {
-	Init(args []Value) // custom arg handling logic
-	Execute() Value    // custom execution logic
+	Init(args []Value)                // custom arg handling logic
+	Execute(db *ShardedRedisDB) Value // custom execution logic
 }
 
 // Handle CLI interactive mode: do nothing as the user input is just an enter with no content
@@ -31,35 +32,56 @@ type NoOpCommand struct {
 func (c *NoOpCommand) Init(args []Value) {
 }
 
-func (c *NoOpCommand) Execute() Value {
+func (c *NoOpCommand) Execute(db *ShardedRedisDB) Value {
 	return Value{typ: TypeString, str: "OK"}
 }
 
-var redisdb = NewRedisDB()
-
 type SetCommand struct {
-	db    string // unused, later could specify which db to set
-	key   string
-	value string
-	err   string
+	key     string
+	value   string
+	err     string
+	expires time.Time
 }
 
 func (c *SetCommand) Init(args []Value) {
-	if len(args) != 2 {
-		c.err = "ERR wrong number of arguments for 'set' command, expected 2, received " + strconv.Itoa(len(args))
+	if len(args) == 2 { // no optional expiry args
+		c.key = args[0].bulk
+		c.value = args[1].bulk
+		c.expires = time.Time{}
 		return
+	} else if len(args) == 4 { // with optional expiry args
+		c.key = args[0].bulk
+		c.value = args[1].bulk
+
+		deltaNum, err := strconv.ParseInt(args[3].bulk, 10, 0)
+		if err != nil {
+			c.err = "SetKey: Invalid optional argument: " + args[3].bulk
+			return
+		}
+
+		switch args[2].bulk {
+		case "EX":
+			delta := time.Duration(deltaNum) * time.Second
+			c.expires = time.Now().Add(delta)
+		case "PX":
+			delta := time.Duration(deltaNum) * time.Millisecond
+			c.expires = time.Now().Add(delta)
+		default:
+			c.err = "SetKey: Invalid optional argument: " + args[2].bulk
+		}
+		return
+	} else {
+		c.err = "ERR wrong number of arguments for 'set' command, expected 2, received " + strconv.Itoa(len(args))
 	}
-	c.key = args[0].bulk
-	c.value = args[1].bulk
 }
 
-func (c *SetCommand) Execute() Value {
+func (c *SetCommand) Execute(db *ShardedRedisDB) Value {
 	if c.err != "" {
 		return Value{typ: TypeError, str: c.err}
 	}
 
-	// SETs[c.key] = c.value
-	redisdb.SetKey(c.key, c.value)
+	fmt.Println("key is set to shard: " + strconv.Itoa(db.GetShardIndex(c.key)))
+	db.SetKey(c.key, c.value, c.expires)
 
 	return Value{typ: TypeString, str: "OK"}
 }
@@ -78,14 +100,12 @@ func (c *GetCommand) Init(args []Value) {
 	c.key = args[0].bulk
 }
 
-func (c *GetCommand) Execute() Value {
+func (c *GetCommand) Execute(db *ShardedRedisDB) Value {
 	if c.err != "" {
 		return Value{typ: TypeError, str: c.err}
 	}
 
-	fmt.Println("Getting key: ", c.key)
-
-	redis_obj, ok := redisdb.GetKey(c.key)
+	redis_obj, ok := db.GetKey(c.key)
 	if !ok {
 		// if key not found
 		return Value{typ: TypeNull}
@@ -116,7 +136,7 @@ func (c *HSetCommand) Init(args []Value) {
 	c.value = args[2].bulk
 }
 
-func (c *HSetCommand) Execute() Value {
+func (c *HSetCommand) Execute(db *ShardedRedisDB) Value {
 	if c.err != "" {
 		return Value{typ: TypeError, str: c.err}
 	}
@@ -147,7 +167,7 @@ func (c *HGetCommand) Init(args []Value) {
 	c.key = args[1].bulk
 }
 
-func (c *HGetCommand) Execute() Value {
+func (c *HGetCommand) Execute(db *ShardedRedisDB) Value {
 	if c.err != "" {
 		return Value{typ: TypeError, str: c.err}
 	}
@@ -173,7 +193,7 @@ func (c *PingCommand) Init(args []Value) {
 	}
 }
 
-func (c *PingCommand) Execute() Value {
+func (c *PingCommand) Execute(db *ShardedRedisDB) Value {
 	if c.arg != "" {
 		return Value{typ: TypeString, str: c.arg}
 	}
