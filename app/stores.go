@@ -55,7 +55,6 @@ func NewRedisDB() *RedisDB {
 // apparently using a number that is power of 2 will make the modulo only looks at the lower bits of the hash, causing results look linear
 const SHARD_COUNT = 5
 
-// TODO: add db sharding, routing based on key hash
 type ShardedRedisDB struct {
 	shards []*RedisDB
 }
@@ -88,20 +87,16 @@ func (sdb *ShardedRedisDB) GetShardIndex(key string) int {
 }
 
 func (sdb *ShardedRedisDB) SetKey(key string, val string, expires time.Time) {
-	// TODO: ignore if key already exists
-	// if key exists but different type, error out (wrong type)
 	db := sdb.getShard(key)
-	// otherwise create new KV pair or overwrite
-	db.mu.Lock()
 
-	newObj := RedisObject{
+	db.mu.Lock()
+	defer db.mu.Unlock()
+
+	db.data[key] = &RedisObject{
 		StoreType: StoreTypeString,
-		val:       []byte(val), // TODO: confirm with AI that this is ok
+		val:       []byte(val),
 		expires:   expires,
 	}
-	db.data[key] = &newObj
-
-	db.mu.Unlock()
 }
 
 // returns pointer to the redis object
@@ -109,20 +104,27 @@ func (sdb *ShardedRedisDB) GetKey(key string) (*RedisObject, bool) {
 	shard := sdb.getShard(key)
 
 	shard.mu.RLock()
-	defer shard.mu.RUnlock()
-
 	value, ok := shard.data[key]
 	if !ok {
+		shard.mu.RUnlock()
 		return nil, false
 	}
 
 	// Lazy Expiry check
 	if !value.expires.IsZero() && time.Now().After(value.expires) {
-		delete(shard.data, key)
+		shard.mu.RUnlock() // Release RLock before acquiring Lock to avoid deadlock
+		shard.mu.Lock()
+
+		// Double-check existence and expiry under write lock
+		if obj, ok := shard.data[key]; ok && !obj.expires.IsZero() && time.Now().After(obj.expires) {
+			delete(shard.data, key)
+		}
+		shard.mu.Unlock()
 		return nil, false
 	}
 
-	return value, ok
+	shard.mu.RUnlock()
+	return value, true
 }
 
 func (sdb *ShardedRedisDB) StartJanitor() {

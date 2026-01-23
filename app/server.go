@@ -73,7 +73,7 @@ func (rs *RedisServer) handleConnection(conn net.Conn) {
 			return
 		}
 
-		fmt.Printf("Received %s\n", value)
+		// fmt.Printf("Received %s\n", value)
 
 		command := value.array[0].bulk
 		args := value.array[1:]
