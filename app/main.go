@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"net"
 	"os"
@@ -11,17 +12,20 @@ var _ = net.Listen
 var _ = os.Exit
 
 func main() {
-	// You can use print statements as follows for debugging, they'll be visible when running tests.
-	fmt.Println("Logs from your program will appear here!")
+	portStrPtr := flag.String("port", "6379", "Port to listen on")
+	flag.Parse()
 
 	redisdb := NewShardedRedisDB()
 	redisdb.StartJanitor()
 	redisServer := NewRedisServer(redisdb)
 
-	l, err := net.Listen("tcp", "0.0.0.0:6379")
+	l, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%s", *portStrPtr))
 	if err != nil {
-		fmt.Println("Failed to bind to port 6379")
+		fmt.Println("Failed to bind to port " + *portStrPtr)
+		os.Exit(1)
 	}
+
+	fmt.Println("Listening on port " + *portStrPtr)
 
 	for {
 		conn, err := l.Accept()
