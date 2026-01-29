@@ -47,7 +47,7 @@ func (c *SetCommand) Init(args []Value) {
 	if len(args) == 2 { // no optional expiry args
 		c.key = args[0].bulk
 		c.value = args[1].bulk
-		c.expires = time.Time{}
+		c.expires = time.Time{} // defaults to non-expiring
 		return
 	} else if len(args) == 4 { // with optional expiry args
 		c.key = args[0].bulk
@@ -81,7 +81,9 @@ func (c *SetCommand) Execute(db *ShardedRedisDB) Value {
 	}
 
 	fmt.Println("key is set to shard: " + strconv.Itoa(db.GetShardIndex(c.key)))
-	db.SetKey(c.key, c.value, c.expires)
+	if err := db.SetKey(c.key, c.value, c.expires); err != nil {
+		return Value{typ: TypeError, str: err.Error()}
+	}
 
 	return Value{typ: TypeString, str: "OK"}
 }
@@ -105,8 +107,8 @@ func (c *GetCommand) Execute(db *ShardedRedisDB) Value {
 		return Value{typ: TypeError, str: c.err}
 	}
 
-	redis_obj, ok := db.GetKey(c.key)
-	if !ok {
+	redis_obj, err := db.GetKey(c.key)
+	if err != nil {
 		// if key not found
 		return Value{typ: TypeNull}
 	}
@@ -120,8 +122,8 @@ var HSETs = map[string]map[string]string{}
 var HSETsMu = sync.RWMutex{}
 
 type HSetCommand struct {
-	hash  string
 	key   string
+	field string
 	value string
 	err   string
 }
@@ -131,8 +133,8 @@ func (c *HSetCommand) Init(args []Value) {
 		c.err = "ERR wrong number of arguments for 'hset' command, expected 3, received " + strconv.Itoa(len(args))
 		return
 	}
-	c.hash = args[0].bulk
-	c.key = args[1].bulk
+	c.key = args[0].bulk
+	c.field = args[1].bulk
 	c.value = args[2].bulk
 }
 
@@ -141,13 +143,9 @@ func (c *HSetCommand) Execute(db *ShardedRedisDB) Value {
 		return Value{typ: TypeError, str: c.err}
 	}
 
-	HSETsMu.Lock()
-	if _, ok := HSETs[c.hash]; !ok { // if hashmap doesn't exist, create it
-		HSETs[c.hash] = make(map[string]string)
+	if err := db.HSetKey(c.key, c.field, c.value); err != nil {
+		return Value{typ: TypeError, str: err.Error()}
 	}
-
-	HSETs[c.hash][c.key] = c.value
-	HSETsMu.Unlock()
 
 	return Value{typ: TypeString, str: "OK"}
 }
@@ -172,11 +170,9 @@ func (c *HGetCommand) Execute(db *ShardedRedisDB) Value {
 		return Value{typ: TypeError, str: c.err}
 	}
 
-	HSETsMu.RLock()
-	value, ok := HSETs[c.hash][c.key]
-	HSETsMu.RUnlock()
-
-	if !ok {
+	// HGET is a bit special, returns the value directly instead of the RedisObject
+	value, err := db.HGetKey(c.hash, c.key)
+	if err != nil {
 		return Value{typ: TypeNull}
 	}
 

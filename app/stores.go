@@ -34,6 +34,14 @@ func (ro *RedisObject) PPrint() string {
 			return string(b)
 		}
 		return "error: invalid string data type"
+	case StoreTypeHash:
+		// map[string]string
+		if m, ok := ro.val.(map[string]string); ok {
+			for k, v := range m {
+				return fmt.Sprintf("%s: %s\n", k, v)
+			}
+		}
+		return "error: invalid hash data type"
 	default:
 		return "PPrint: UNDEFINED data type\n"
 	}
@@ -86,28 +94,40 @@ func (sdb *ShardedRedisDB) GetShardIndex(key string) int {
 	return index
 }
 
-func (sdb *ShardedRedisDB) SetKey(key string, val string, expires time.Time) {
-	db := sdb.getShard(key)
+func (sdb *ShardedRedisDB) SetKey(key string, val string, expires time.Time) error {
+	shard := sdb.getShard(key)
 
-	db.mu.Lock()
-	defer db.mu.Unlock()
+	shard.mu.Lock()
+	defer shard.mu.Unlock()
 
-	db.data[key] = &RedisObject{
-		StoreType: StoreTypeString,
-		val:       []byte(val),
-		expires:   expires,
+	// if key does not exist, create it
+	if _, ok := shard.data[key]; !ok {
+		shard.data[key] = &RedisObject{
+			StoreType: StoreTypeString,
+			val:       []byte(val),
+			expires:   expires,
+		}
 	}
+
+	// check if the existing key is of string type
+	if shard.data[key].StoreType != StoreTypeString {
+		return fmt.Errorf("SetKey: key %s is not a string type", key)
+	}
+
+	// if all good, set the value
+	shard.data[key].val = []byte(val)
+
+	return nil
 }
 
-// returns pointer to the redis object
-func (sdb *ShardedRedisDB) GetKey(key string) (*RedisObject, bool) {
+func (sdb *ShardedRedisDB) GetKey(key string) (*RedisObject, error) {
 	shard := sdb.getShard(key)
 
 	shard.mu.RLock()
 	value, ok := shard.data[key]
 	if !ok {
 		shard.mu.RUnlock()
-		return nil, false
+		return nil, fmt.Errorf("GetKey: key %s not found", key)
 	}
 
 	// Lazy Expiry check
@@ -120,11 +140,55 @@ func (sdb *ShardedRedisDB) GetKey(key string) (*RedisObject, bool) {
 			delete(shard.data, key)
 		}
 		shard.mu.Unlock()
-		return nil, false
+		return nil, fmt.Errorf("GetKey: key %s not found", key)
 	}
 
 	shard.mu.RUnlock()
-	return value, true
+	return value, nil
+}
+
+func (sdb *ShardedRedisDB) HSetKey(key string, field string, val string) error {
+	shard := sdb.getShard(key)
+
+	shard.mu.Lock()
+	defer shard.mu.Unlock()
+
+	if _, ok := shard.data[key]; !ok { // if top-level key does not exist, create it
+		shard.data[key] = &RedisObject{
+			StoreType: StoreTypeHash,
+			val:       make(map[string]string),
+			expires:   time.Time{}, // defaults to non-expiring
+		}
+	}
+
+	// check if the existing key is of hash type
+	if shard.data[key].StoreType != StoreTypeHash {
+		return fmt.Errorf("HSetKey: key %s is not a hash type", key)
+	}
+
+	// now set the field in the hash
+	shard.data[key].val.(map[string]string)[field] = val
+
+	return nil
+}
+
+func (sdb *ShardedRedisDB) HGetKey(key string, field string) (string, error) {
+	shard := sdb.getShard(key)
+
+	shard.mu.RLock()
+	defer shard.mu.RUnlock()
+
+	redisObj, ok := shard.data[key]
+	if !ok {
+		return "", fmt.Errorf("HGetKey: key %s not found", key)
+	}
+
+	value, ok := redisObj.val.(map[string]string)[field]
+	if !ok {
+		return "", fmt.Errorf("HGetKey: field %s not found", field)
+	}
+
+	return value, nil
 }
 
 func (sdb *ShardedRedisDB) StartJanitor() {
