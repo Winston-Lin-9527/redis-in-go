@@ -137,44 +137,58 @@ func (sdb *ShardedRedisDB) StartJanitor() {
 }
 
 func (sdb *ShardedRedisDB) purgeExpiredKeys() {
-	maxPurges := 10 // purge for 10 times maximum
+	maxDuration := 25 * time.Millisecond
+	startTime := time.Now()
 
-	for i := 0; i < maxPurges; i++ {
+	maxSampleSize := 20
+	numShardsToCheck := (SHARD_COUNT + 2 - 1) / 2 // (a+b-1)/b gives the ceiling
+
+	perm := rand.Perm(len(sdb.shards)) // randomized, then select
+
+	for i := 0; i < numShardsToCheck; i++ {
 		// clean only one random shard at a time
-		shardIndex := rand.Intn(len(sdb.shards))
+		shardIndex := perm[i]
 		shard := sdb.shards[shardIndex]
-
-		shard.mu.Lock()
-
-		iterationCnt := 0
-		maxSampleSize := 20
-		expiredCnt := 0
 		fmt.Println("purging shard: " + strconv.Itoa(shardIndex))
 
-		for key, obj := range shard.data {
-			if iterationCnt >= maxSampleSize {
+		for { // check a particular shard
+			shard.mu.Lock()
+
+			expiredCnt := 0
+			checkedCnt := 0
+
+			for key, obj := range shard.data {
+				if checkedCnt >= maxSampleSize {
+					break
+				}
+				checkedCnt++
+
+				if !obj.expires.IsZero() && time.Now().After(obj.expires) {
+					delete(shard.data, key)
+					expiredCnt++
+					fmt.Println("purged key: " + key)
+				}
+
+			}
+			shard.mu.Unlock()
+
+			if checkedCnt == 0 { // if shard empty, break to skip this shard
 				break
 			}
-			iterationCnt++
 
-			if !obj.expires.IsZero() && time.Now().After(obj.expires) {
-				delete(shard.data, key)
-				expiredCnt++
-				fmt.Println("purged key: " + key)
+			if float64(expiredCnt)/float64(checkedCnt) < 0.25 {
+				// shard is CLEAN!! continue working on the next shard
+				// unless we've reached maxShardsToCheck // TODO: the next random shard could be the same
+				// therefore selecting without replacement would be better
+				break
 			}
-		}
 
-		shard.mu.Unlock()
+			// SAFETY CHECK: don't linger too long in a purge
+			if time.Since(startTime) > maxDuration {
+				return
+			}
 
-		// TODO: This janitor logic doesn't seem right.... need to re-work
-
-		// adaptive strategy, exit the loop ONLY if we checked enough keys and less than 25% are expired
-		// but we still want to give other shards a chance in the next iterations of the outer loop
-		// so we break out of THIS specific purge attempt if the current shard is clean
-		if iterationCnt > 0 && float64(expiredCnt)/float64(iterationCnt) < 0.25 {
-			// Instead of breaking the whole loop, we just continue to the next random shard
-			// unless we've reached maxPurges.
-			continue
+			// otherwise, continue working on this shard, cuz this shard is DIRTYY!!s
 		}
 	}
 
