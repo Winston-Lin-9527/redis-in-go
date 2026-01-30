@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -117,9 +116,6 @@ func (c *GetCommand) Execute(db *ShardedRedisDB) Value {
 
 	return Value{typ: TypeBulk, bulk: val_str}
 }
-
-var HSETs = map[string]map[string]string{}
-var HSETsMu = sync.RWMutex{}
 
 type HSetCommand struct {
 	key   string

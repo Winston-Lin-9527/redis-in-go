@@ -14,6 +14,9 @@ type Aof struct {
 	rd     *RespReader
 	wr     *RespWriter
 	muLock sync.Mutex
+
+	stopChan chan struct{}
+	wg       sync.WaitGroup
 }
 
 // note this is not a class method
@@ -24,33 +27,43 @@ func NewAof(path string) (*Aof, error) {
 	}
 
 	aof := Aof{
-		file:   f, // save it for closing at the end
-		rd:     NewRespReader(f),
-		wr:     NewRespWriter(f),
-		muLock: sync.Mutex{},
+		file:     f, // save it for closing at the end
+		rd:       NewRespReader(f),
+		wr:       NewRespWriter(f),
+		muLock:   sync.Mutex{},
+		stopChan: make(chan struct{}),
 	}
 
-	// sync every 5 second
-	go func() {
-		for {
-			aof.muLock.Lock()
-
-			aof.wr.Flush() // flush the write buffer to the disk
-
-			aof.muLock.Unlock()
-
-			time.Sleep(time.Second * 5)
-		}
-	}()
+	aof.wg.Add(1)
 
 	return &aof, nil
 }
 
-func (a *Aof) CloseAof() error {
-	a.muLock.Lock()
-	defer a.muLock.Unlock()
+func (a *Aof) StartSyncLoop() {
+	defer a.wg.Done()
 
+	ticker := time.NewTicker(time.Second * 5)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-a.stopChan:
+			return
+		case <-ticker.C:
+			a.muLock.Lock()
+			a.wr.Flush()
+			a.muLock.Unlock()
+		}
+	}
+}
+
+func (a *Aof) CloseAof() error {
+	close(a.stopChan)
+	a.wg.Wait() // blocks until counter reaches 0
+
+	a.muLock.Lock()
 	a.wr.Flush()
+	a.muLock.Unlock()
 
 	return a.file.Close()
 }
@@ -64,6 +77,8 @@ func (a *Aof) WriteCommand(v Value) error {
 
 // assumes AOF file valid
 func (a *Aof) Reconstruct(callback func(v Value)) error {
+	// TODO: potentially AOF sync could happen before reconstruction, although unlikely but its still a risk
+	// can pause the sync before reconstruction
 	a.muLock.Lock()
 	defer a.muLock.Unlock()
 

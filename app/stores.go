@@ -104,7 +104,7 @@ func (sdb *ShardedRedisDB) SetKey(key string, val string, expires time.Time) err
 	if _, ok := shard.data[key]; !ok {
 		shard.data[key] = &RedisObject{
 			StoreType: StoreTypeString,
-			val:       []byte(val),
+			val:       nil,
 			expires:   expires,
 		}
 	}
@@ -114,8 +114,9 @@ func (sdb *ShardedRedisDB) SetKey(key string, val string, expires time.Time) err
 		return fmt.Errorf("SetKey: key %s is not a string type", key)
 	}
 
-	// if all good, set the value
+	// if all good, set (or overwrite) the value
 	shard.data[key].val = []byte(val)
+	shard.data[key].expires = expires
 
 	return nil
 }
@@ -166,8 +167,8 @@ func (sdb *ShardedRedisDB) HSetKey(key string, field string, val string) error {
 		return fmt.Errorf("HSetKey: key %s is not a hash type", key)
 	}
 
-	// now set the field in the hash
-	shard.data[key].val.(map[string]string)[field] = val
+	// now set(or overwrite) the field in the hash
+	shard.data[key].val = map[string]string{field: val}
 
 	return nil
 }

@@ -10,6 +10,7 @@ import (
 
 type RedisServer struct {
 	db *ShardedRedisDB
+	// register connections here
 }
 
 func NewRedisServer(db *ShardedRedisDB) *RedisServer {
@@ -40,6 +41,7 @@ func (rs *RedisServer) handleConnection(conn net.Conn) {
 			return
 		}
 	})
+	go aof.StartSyncLoop()
 	defer aof.CloseAof()
 
 	for {
@@ -72,8 +74,6 @@ func (rs *RedisServer) handleConnection(conn net.Conn) {
 			fmt.Println("Error: expected at least 1 element, got: ", len(value.array))
 			return
 		}
-
-		// fmt.Printf("Received %s\n", value)
 
 		command := value.array[0].bulk
 		args := value.array[1:]
