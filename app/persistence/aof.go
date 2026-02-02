@@ -1,4 +1,4 @@
-package main
+package persistence
 
 import (
 	"fmt"
@@ -7,19 +7,21 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/Winston-Lin-9527/redis-in-go/app/protocol"
 )
 
+// Aof represents the Append-Only File for persistence
 type Aof struct {
-	file   *os.File
-	rd     *RespReader
-	wr     *RespWriter
-	muLock sync.Mutex
-
+	file     *os.File
+	rd       *protocol.RespReader
+	wr       *protocol.RespWriter
+	muLock   sync.Mutex
 	stopChan chan struct{}
 	wg       sync.WaitGroup
 }
 
-// note this is not a class method
+// NewAof creates a new AOF handler
 func NewAof(path string) (*Aof, error) {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0644)
 	if err != nil {
@@ -27,9 +29,9 @@ func NewAof(path string) (*Aof, error) {
 	}
 
 	aof := Aof{
-		file:     f, // save it for closing at the end
-		rd:       NewRespReader(f),
-		wr:       NewRespWriter(f),
+		file:     f,
+		rd:       protocol.NewRespReader(f),
+		wr:       protocol.NewRespWriter(f),
 		muLock:   sync.Mutex{},
 		stopChan: make(chan struct{}),
 	}
@@ -39,6 +41,7 @@ func NewAof(path string) (*Aof, error) {
 	return &aof, nil
 }
 
+// StartSyncLoop starts the background sync loop
 func (a *Aof) StartSyncLoop() {
 	defer a.wg.Done()
 
@@ -57,9 +60,10 @@ func (a *Aof) StartSyncLoop() {
 	}
 }
 
+// CloseAof closes the AOF file
 func (a *Aof) CloseAof() error {
 	close(a.stopChan)
-	a.wg.Wait() // blocks until counter reaches 0
+	a.wg.Wait()
 
 	a.muLock.Lock()
 	a.wr.Flush()
@@ -68,17 +72,16 @@ func (a *Aof) CloseAof() error {
 	return a.file.Close()
 }
 
-func (a *Aof) WriteCommand(v Value) error {
+// WriteCommand writes a command to the AOF
+func (a *Aof) WriteCommand(v protocol.Value) error {
 	a.muLock.Lock()
 	defer a.muLock.Unlock()
 
 	return a.wr.Write(v)
 }
 
-// assumes AOF file valid
-func (a *Aof) Reconstruct(callback func(v Value)) error {
-	// TODO: potentially AOF sync could happen before reconstruction, although unlikely but its still a risk
-	// can pause the sync before reconstruction
+// Reconstruct replays commands from the AOF file
+func (a *Aof) Reconstruct(callback func(v protocol.Value)) error {
 	a.muLock.Lock()
 	defer a.muLock.Unlock()
 
@@ -88,10 +91,11 @@ func (a *Aof) Reconstruct(callback func(v Value)) error {
 		fmt.Fprintf(os.Stderr, "AOF file is empty, but that's ok! Just created one.\n")
 		return nil
 	}
+	_ = v // consume first read
 
 	for {
 		v, err = a.rd.Read()
-		if err == io.EOF { // finished reading the AOF
+		if err == io.EOF {
 			fmt.Println("AOF: Loaded " + strconv.Itoa(num_command_loaded) + " commands")
 			break
 		}

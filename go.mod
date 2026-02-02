@@ -6,6 +6,6 @@
 //
 // DON'T EDIT THIS!
 
-module github.com/codecrafters-io/redis-starter-go
+module github.com/Winston-Lin-9527/redis-in-go
 
 go 1.24.0

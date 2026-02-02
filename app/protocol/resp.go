@@ -1,4 +1,4 @@
-package main
+package protocol
 
 import (
 	"bufio"
@@ -7,7 +7,7 @@ import (
 	"strconv"
 )
 
-// all about RESP
+// RESP protocol constants
 const (
 	STRING      = '+'
 	ERROR       = '-'
@@ -16,32 +16,33 @@ const (
 	ARRAY       = '*'
 )
 
-// 1. Define the "Enum" type
-type RespValueType string
+// ValueType represents the type of RESP value
+type ValueType string
 
-// 2. Define the possible values
 const (
-	TypeArray  RespValueType = "array"
-	TypeBulk   RespValueType = "bulk"
-	TypeString RespValueType = "string"
-	TypeError  RespValueType = "error"
-	TypeInt    RespValueType = "integer"
-	TypeNull   RespValueType = "null"
+	TypeArray  ValueType = "array"
+	TypeBulk   ValueType = "bulk"
+	TypeString ValueType = "string"
+	TypeError  ValueType = "error"
+	TypeInt    ValueType = "integer"
+	TypeNull   ValueType = "null"
 )
 
+// Value represents a RESP value
 type Value struct {
-	typ   RespValueType // the data type, one of the constants defined above
-	str   string
-	num   string
-	bulk  string
-	array []Value // nested type
+	Typ   ValueType
+	Str   string
+	Num   string
+	Bulk  string
+	Array []Value
 }
 
-// RespReader reader (RESP -> Value)
+// RespReader reads RESP protocol (RESP -> Value)
 type RespReader struct {
 	reader *bufio.Reader
 }
 
+// NewRespReader creates a new RespReader
 func NewRespReader(rd io.Reader) *RespReader {
 	return &RespReader{reader: bufio.NewReader(rd)}
 }
@@ -75,20 +76,20 @@ func (r *RespReader) readInteger() (x int, n int, err error) {
 
 func (r *RespReader) readArray() (Value, error) {
 	v := Value{}
-	v.typ = TypeArray
+	v.Typ = TypeArray
 
-	array_size, _, err := r.readInteger() // array size is already known
+	array_size, _, err := r.readInteger()
 	if err != nil {
 		return v, err
 	}
 
-	v.array = make([]Value, array_size)
+	v.Array = make([]Value, array_size)
 	for i := 0; i < int(array_size); i++ {
 		val, err := r.Read()
 		if err != nil {
 			return v, err
 		}
-		v.array[i] = val
+		v.Array[i] = val
 	}
 
 	return v, nil
@@ -96,7 +97,7 @@ func (r *RespReader) readArray() (Value, error) {
 
 func (r *RespReader) readBulk() (Value, error) {
 	v := Value{}
-	v.typ = TypeBulk
+	v.Typ = TypeBulk
 
 	bulk_size, _, err := r.readInteger()
 	if err != nil {
@@ -111,14 +112,14 @@ func (r *RespReader) readBulk() (Value, error) {
 		return v, err
 	}
 
-	v.bulk = string(bulk)
+	v.Bulk = string(bulk)
 
 	r.readLine() // trailing \r\n
 
 	return v, nil
 }
 
-// reads in a single command
+// Read reads a single RESP command
 func (r *RespReader) Read() (Value, error) {
 	// first byte is the data type
 	data_type, err := r.reader.ReadByte()
@@ -137,19 +138,24 @@ func (r *RespReader) Read() (Value, error) {
 	}
 }
 
-// the reader performs (RESP -> Value), now we need to perform (Value -> RESP in raw bytes)
-// assemble bytes from Value objects
+// Buffered returns the number of bytes that can be read from the current buffer
+func (r *RespReader) Buffered() int {
+	return r.reader.Buffered()
+}
 
+// RespWriter writes RESP protocol (Value -> bytes)
 type RespWriter struct {
 	writer *bufio.Writer
 }
 
+// NewRespWriter creates a new RespWriter
 func NewRespWriter(w io.Writer) *RespWriter {
 	return &RespWriter{writer: bufio.NewWriter(w)}
 }
 
+// Write writes a Value to the underlying writer
 func (w *RespWriter) Write(v Value) error {
-	bs, err := v.toBytes()
+	bs, err := v.ToBytes()
 	if err != nil {
 		return err
 	}
@@ -159,16 +165,17 @@ func (w *RespWriter) Write(v Value) error {
 		return err
 	}
 
-	// w.writer.Flush() // it's a buffered IO, we MUST flush to move data from bufio down to Go runtime
 	return nil
 }
 
+// Flush flushes the underlying buffer
 func (w *RespWriter) Flush() error {
 	return w.writer.Flush()
 }
 
-func (v *Value) toBytes() ([]byte, error) {
-	switch v.typ {
+// ToBytes converts a Value to RESP bytes
+func (v *Value) ToBytes() ([]byte, error) {
+	switch v.Typ {
 	case TypeString:
 		return v.stringToBytes(), nil
 	case TypeBulk:
@@ -180,36 +187,33 @@ func (v *Value) toBytes() ([]byte, error) {
 	case TypeNull:
 		return v.nullToBytes(), nil
 	default:
-		return nil, fmt.Errorf("unknown data type: %s", v.typ)
+		return nil, fmt.Errorf("unknown data type: %s", v.Typ)
 	}
 }
 
-// since unlikely to fail, we can ignore the error
 func (v *Value) stringToBytes() (bs []byte) {
 	bs = append(bs, STRING)
-	bs = append(bs, v.str...)
+	bs = append(bs, v.Str...)
 	bs = append(bs, '\r', '\n')
 	return bs
 }
 
-// since unlikely to fail, we can ignore the error
 func (v *Value) bulkToBytes() (bs []byte) {
 	bs = append(bs, BULK_STRING)
-	bs = append(bs, strconv.Itoa(len(v.bulk))...)
+	bs = append(bs, strconv.Itoa(len(v.Bulk))...)
 	bs = append(bs, '\r', '\n')
-	bs = append(bs, v.bulk...)
+	bs = append(bs, v.Bulk...)
 	bs = append(bs, '\r', '\n')
-
 	return bs
 }
 
 func (v *Value) arrayToBytes() (bs []byte, err error) {
 	bs = append(bs, ARRAY)
-	bs = append(bs, strconv.Itoa(len(v.array))...)
+	bs = append(bs, strconv.Itoa(len(v.Array))...)
 	bs = append(bs, '\r', '\n')
 
-	for i := 0; i < len(v.array); i++ {
-		unfolded_array, err := v.array[i].toBytes()
+	for i := 0; i < len(v.Array); i++ {
+		unfolded_array, err := v.Array[i].ToBytes()
 		if err != nil {
 			return nil, err
 		}
@@ -221,7 +225,7 @@ func (v *Value) arrayToBytes() (bs []byte, err error) {
 
 func (v *Value) errorToBytes() (bs []byte) {
 	bs = append(bs, ERROR)
-	bs = append(bs, v.str...)
+	bs = append(bs, v.Str...)
 	bs = append(bs, '\r', '\n')
 	return bs
 }
