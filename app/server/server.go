@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Winston-Lin-9527/redis-in-go/app/commands"
+	"github.com/Winston-Lin-9527/redis-in-go/app/config"
 	"github.com/Winston-Lin-9527/redis-in-go/app/persistence"
 	"github.com/Winston-Lin-9527/redis-in-go/app/protocol"
 	"github.com/Winston-Lin-9527/redis-in-go/app/store"
@@ -19,16 +20,33 @@ type RedisServer struct {
 	db      *store.ShardedRedisDB
 	clients map[uint64]*Client
 	aof     *persistence.Aof
+	config  *config.Config
 }
 
 // NewRedisServer creates a new Redis server
 func NewRedisServer() *RedisServer {
-	return &RedisServer{clients: make(map[uint64]*Client)}
+	return &RedisServer{
+		clients: make(map[uint64]*Client),
+		config:  config.DefaultConfig(),
+	}
 }
 
+// SetConfig sets a configuration value, for main.go to use
+func (rs *RedisServer) SetConfig(key, value string) error {
+	return rs.config.Set(key, value)
+}
+
+// // GetConfig gets a configuration value
+// func (rs *RedisServer) GetConfig(key string) string {
+// 	return rs.config.Get(key)
+// }
+
 // Run starts the server on the given port
-func (rs *RedisServer) Run(port string) {
-	l, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%s", port))
+func (rs *RedisServer) Run() {
+	port := rs.config.Get("port") // already set by main.go
+
+	listenAddress := fmt.Sprintf("0.0.0.0:%s", port)
+	l, err := net.Listen("tcp", listenAddress)
 	if err != nil {
 		fmt.Println("Failed to bind to port " + port)
 		os.Exit(1)
@@ -41,11 +59,38 @@ func (rs *RedisServer) Run(port string) {
 	redisdb.StartJanitor()
 
 	// storage: aof
-	aof, err := persistence.NewAof("aof")
-	if err != nil {
-		panic(err)
+	// Check config for AOF
+	if rs.config.Get("aofEnabled") == "yes" {
+		aof, err := persistence.NewAof(rs.config.Get("appendfilename"))
+		if err != nil {
+			fmt.Println("Failed to create AOF file: ", err.Error())
+			// Use panic or exit? Original code panicked on NewAof error, let's stick to panic or strict failure
+			panic(err)
+		}
+		rs.aof = aof
+
+		// Reconstruct from AOF
+		rs.aof.Reconstruct(func(v protocol.Value) {
+			cmd, errval := SelectCommand(v.Array[0].Bulk, v.Array[1:])
+			if errval.Typ == protocol.TypeError {
+				fmt.Println("Error selecting command from AOF: ", errval.Str)
+				return
+			}
+
+			ctx := &commands.CommandContext{
+				DB:     rs.db,
+				Config: rs.config,
+			}
+			result := cmd.Handler(v.Array, ctx)
+			if result.Typ == protocol.TypeError {
+				fmt.Println("Error executing command from AOF: ", result.Str)
+				return
+			}
+		})
+
+		go rs.aof.StartSyncLoop()
+		defer rs.aof.CloseAof()
 	}
-	rs.aof = aof
 
 	for {
 		conn, err := l.Accept()
@@ -66,40 +111,20 @@ func (rs *RedisServer) handleConnection(client *Client) {
 	resp := protocol.NewRespReader(client.conn)
 	writer := protocol.NewRespWriter(client.conn)
 
-	aof, err := persistence.NewAof("aof")
-	if err != nil {
-		fmt.Println("Failed to create AOF file: ", err.Error())
-		return
-	}
-	aof.Reconstruct(func(v protocol.Value) {
-		cmd, errval := SelectCommand(v.Array[0].Bulk, v.Array[1:])
-		if errval.Typ == protocol.TypeError {
-			fmt.Println("Error selecting command from AOF: ", errval.Str)
-			return
-		}
-
-		ctx := &commands.CommandContext{DB: rs.db}
-		result := cmd.Handler(v.Array, ctx)
-		if result.Typ == protocol.TypeError {
-			fmt.Println("Error executing command from AOF: ", result.Str)
-			return
-		}
-	})
-	go aof.StartSyncLoop()
-	defer aof.CloseAof()
-
+	// main event loop
 	for {
-		timeoutDuration := 1 * time.Minute
+		timeoutDuration := 5 * time.Minute // Increased timeout for debugging/usability
 		client.conn.SetReadDeadline(time.Now().Add(timeoutDuration))
 
 		value, err := resp.Read()
 		if err != nil {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-				fmt.Println("Connection timed out (idle for too long)")
+				// Don't spam logs with timeout in dev/test often, but it's fine
+				// fmt.Println("Connection timed out (idle for too long)")
 				return
 			}
 			if errors.Is(err, io.EOF) {
-				fmt.Println("Client disconnected")
+				// fmt.Println("Client disconnected")
 				return
 			}
 			fmt.Println("Error reading request: ", err.Error())
@@ -126,7 +151,10 @@ func (rs *RedisServer) handleConnection(client *Client) {
 			return
 		}
 
-		ctx := &commands.CommandContext{DB: rs.db}
+		ctx := &commands.CommandContext{
+			DB:     rs.db,
+			Config: rs.config,
+		}
 		result := cmd.Execute(args, ctx)
 
 		writer.Write(result)
@@ -136,8 +164,8 @@ func (rs *RedisServer) handleConnection(client *Client) {
 		}
 
 		// Write to AOF
-		if cmd.Flags&commands.FLAG_WRITE != 0 {
-			aof.WriteCommand(value)
+		if rs.aof != nil && (cmd.Flags&commands.FLAG_WRITE != 0) {
+			rs.aof.WriteCommand(value)
 		}
 	}
 }

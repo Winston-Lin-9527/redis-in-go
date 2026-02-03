@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"github.com/Winston-Lin-9527/redis-in-go/app/config"
 	"github.com/Winston-Lin-9527/redis-in-go/app/protocol"
 	"github.com/Winston-Lin-9527/redis-in-go/app/store"
 )
@@ -16,7 +17,8 @@ const (
 
 // CommandContext provides context for command execution
 type CommandContext struct {
-	DB *store.ShardedRedisDB
+	DB     *store.ShardedRedisDB
+	Config *config.Config
 }
 
 // CommandHandler is the function signature for command implementation

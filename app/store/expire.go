@@ -3,7 +3,6 @@ package store
 import (
 	"fmt"
 	"math/rand"
-	"strconv"
 	"time"
 )
 
@@ -31,7 +30,7 @@ func (sdb *ShardedRedisDB) purgeExpiredKeys() {
 		// clean only one random shard at a time
 		shardIndex := perm[i]
 		shard := sdb.Shards[shardIndex]
-		fmt.Println("purging shard: " + strconv.Itoa(shardIndex))
+		// fmt.Println("purging shard: " + strconv.Itoa(shardIndex))
 
 		for { // check a particular shard
 			shard.mu.Lock()
@@ -71,6 +70,4 @@ func (sdb *ShardedRedisDB) purgeExpiredKeys() {
 			// otherwise, continue working on this shard, cuz this shard is DIRTYY!!
 		}
 	}
-
-	fmt.Println("purged finished")
 }

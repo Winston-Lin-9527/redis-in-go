@@ -16,6 +16,7 @@ var Handlers = map[string]*commands.Command{
 	"GET":     {Name: "get", Handler: commands.Get, Arity: 2, Flags: commands.FLAG_READONLY},
 	"HSET":    {Name: "hset", Handler: commands.HSet, Arity: 4, Flags: commands.FLAG_WRITE},
 	"HGET":    {Name: "hget", Handler: commands.HGet, Arity: 3, Flags: commands.FLAG_READONLY},
+	"CONFIG":  {Name: "config", Handler: commands.ConfigCommand, Arity: -3, Flags: commands.FLAG_WRITE},
 }
 
 // NoOp handles CLI interactive mode and COMMAND command
@@ -44,11 +45,11 @@ func SelectCommand(commandName string, args []protocol.Value) (cmd *commands.Com
 
 	if cmd.Arity > 0 {
 		if totalArgs != cmd.Arity {
-			return nil, protocol.Value{Typ: protocol.TypeError, Str: "ERR wrong number of arguments for '" + cmd.Name + "' command"}
+			return nil, protocol.Value{Typ: protocol.TypeError, Str: "1ERR wrong number of arguments for '" + cmd.Name + "' command"}
 		}
 	} else if cmd.Arity < 0 {
 		if totalArgs < -cmd.Arity {
-			return nil, protocol.Value{Typ: protocol.TypeError, Str: "ERR wrong number of arguments for '" + cmd.Name + "' command"}
+			return nil, protocol.Value{Typ: protocol.TypeError, Str: "2ERR wrong number of arguments for '" + cmd.Name + "' command"}
 		}
 	}
 
