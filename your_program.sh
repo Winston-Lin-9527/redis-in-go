@@ -8,6 +8,13 @@
 
 set -e # Exit early if any commands fail
 
+# Check if the first argument is "test"
+if [ "$1" = "test" ]; then
+  cd "$(dirname "$0")" # Ensure we're in the repository directory
+  echo "Running tests..."
+  exec go test ./tests/... # -v
+fi
+
 # Copied from .codecrafters/compile.sh
 #
 # - Edit this to change how your program compiles locally

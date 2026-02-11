@@ -1,7 +1,7 @@
 package server
 
 import (
-	"math/rand/v2"
+	"math/rand"
 	"net"
 	"time"
 )
