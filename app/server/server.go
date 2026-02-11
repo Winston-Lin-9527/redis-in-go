@@ -20,6 +20,7 @@ type RedisServer struct {
 	db      *store.ShardedRedisDB
 	clients map[uint64]*Client
 	aof     *persistence.Aof
+	rdb     *persistence.RDB
 	config  *config.Config
 }
 
@@ -36,11 +37,6 @@ func (rs *RedisServer) SetConfig(key, value string) error {
 	return rs.config.Set(key, value)
 }
 
-// // GetConfig gets a configuration value
-// func (rs *RedisServer) GetConfig(key string) string {
-// 	return rs.config.Get(key)
-// }
-
 // Run starts the server on the given port
 func (rs *RedisServer) Run() {
 	port := rs.config.Get("port") // already set by main.go
@@ -56,6 +52,17 @@ func (rs *RedisServer) Run() {
 	// storage: db
 	redisdb := store.NewShardedRedisDB()
 	rs.db = redisdb
+
+	// storage: rdb - load from disk before starting janitor
+	rs.rdb = persistence.NewRDB(rs.config)
+	if err := rs.rdb.LoadRDB(func(key, val string, expires time.Time) {
+		if err := rs.db.SetKey(key, val, expires); err != nil {
+			fmt.Println("Error loading key from RDB: ", err.Error())
+		}
+	}); err != nil {
+		fmt.Println("Warning: Could not load RDB file: ", err.Error())
+	}
+
 	redisdb.StartJanitor()
 
 	// storage: aof
