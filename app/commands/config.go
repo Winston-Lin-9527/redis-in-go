@@ -6,8 +6,8 @@ import (
 	"github.com/Winston-Lin-9527/redis-in-go/app/protocol"
 )
 
-// ConfigCommand handles CONFIG GET and CONFIG SET
-func ConfigCommand(args []protocol.Value, ctx *CommandContext) protocol.Value {
+// Config handles CONFIG GET and CONFIG SET
+func Config(args []protocol.Value, ctx *CommandContext) protocol.Value {
 	// Args: [CONFIG, GET/SET, payload...]
 	if len(args) < 2 {
 		return protocol.Value{Typ: protocol.TypeError, Str: "Config command requires at least 2 arguments"}

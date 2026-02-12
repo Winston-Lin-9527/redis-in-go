@@ -16,7 +16,7 @@ var Handlers = map[string]*commands.Command{
 	"GET":     {Name: "get", Handler: commands.Get, Arity: 2, Flags: commands.FLAG_READONLY},
 	"HSET":    {Name: "hset", Handler: commands.HSet, Arity: 4, Flags: commands.FLAG_WRITE},
 	"HGET":    {Name: "hget", Handler: commands.HGet, Arity: 3, Flags: commands.FLAG_READONLY},
-	"CONFIG":  {Name: "config", Handler: commands.ConfigCommand, Arity: -3, Flags: commands.FLAG_WRITE},
+	"CONFIG":  {Name: "config", Handler: commands.Config, Arity: -3, Flags: commands.FLAG_WRITE},
 }
 
 // NoOp handles CLI interactive mode and COMMAND command

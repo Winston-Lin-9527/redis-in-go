@@ -162,9 +162,13 @@ func (rs *RedisServer) handleConnection(client *Client) {
 			DB:     rs.db,
 			Config: rs.config,
 		}
+		// the actual command execution
 		result := cmd.Execute(args, ctx)
 
 		writer.Write(result)
+
+		currentTime := time.Now().Format(time.RFC3339)
+		fmt.Printf("[%s] Executed command: %s, args: %+v, result: %v\n", currentTime, command, args, result)
 
 		if resp.Buffered() == 0 {
 			writer.Flush()
