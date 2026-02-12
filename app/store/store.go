@@ -3,6 +3,7 @@ package store
 import (
 	"fmt"
 	"hash/fnv"
+	"path"
 	"sync"
 	"time"
 )
@@ -155,6 +156,50 @@ func (sdb *ShardedRedisDB) HGetKey(key string, field string) (string, error) {
 	}
 
 	return value, nil
+}
+
+// GetAllKeys returns all keys matching the given glob pattern
+// Pattern examples: "*" (all), "user:*", "session:???", "[ab]*"
+func (sdb *ShardedRedisDB) GetAllKeys(pattern string) []string {
+	var allKeys []string
+	var mu sync.Mutex // for the allKeys
+	var wg sync.WaitGroup
+
+	// Iterate through all shards in parallel for better performance
+	for _, shard := range sdb.Shards {
+		wg.Add(1)
+		go func(s *RedisDB) {
+			defer wg.Done()
+
+			s.mu.RLock()
+			localKeys := make([]string, 0)
+			now := time.Now()
+
+			for key, obj := range s.Data {
+				// Skip expired keys (lazy expiry check)
+				if !obj.Expires.IsZero() && now.After(obj.Expires) {
+					continue
+				}
+
+				// Match pattern using glob-style matching
+				matched, err := path.Match(pattern, key)
+				if err == nil && matched {
+					localKeys = append(localKeys, key)
+				}
+			}
+			s.mu.RUnlock()
+
+			// Collect results from all shards
+			if len(localKeys) > 0 {
+				mu.Lock()
+				allKeys = append(allKeys, localKeys...)
+				mu.Unlock()
+			}
+		}(shard)
+	}
+
+	wg.Wait()
+	return allKeys
 }
 
 // PPrint pretty prints a RedisObject as string
