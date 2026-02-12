@@ -21,8 +21,8 @@ func Set(args []protocol.Value, ctx *CommandContext) protocol.Value {
 		return protocol.Value{Typ: protocol.TypeError, Str: "Set command requires at least 2 arguments"}
 	}
 
-	// handle options
-	for i := 0; i < len(args); i++ {
+	// handle options (start after key and value)
+	for i := 2; i < len(args); i++ {
 		opt := args[i].Bulk
 		if i+1 >= len(args) {
 			return protocol.Value{Typ: protocol.TypeError, Str: "ERR syntax error"}

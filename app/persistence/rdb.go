@@ -44,10 +44,13 @@ type rdbHeader struct {
 func (rdb *RDB) LoadRDB(onKeyValue func(key, val string, expires time.Time)) error {
 	rdbFilePath := path.Join(rdb.dir, rdb.dbfilename)
 	file, err := os.Open(rdbFilePath)
-	if err != nil {
+	if os.IsNotExist(err) {
 		fmt.Println("RDB file not found at: " + rdbFilePath)
-		return err
+		return nil // not an error if RDB file doesn't exist, just means no data to load
+	} else if err != nil {
+		return fmt.Errorf("Error opening RDB file: %s", err)
 	}
+
 	defer file.Close()
 
 	rdb.reader = bufio.NewReader(file)
